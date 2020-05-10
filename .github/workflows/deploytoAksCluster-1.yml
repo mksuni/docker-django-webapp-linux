@@ -1,0 +1,50 @@
+on: [push]
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    
+    - uses: azure/docker-login@v1
+      with:
+        login-server: sumuthacr.azurecr.io
+        username: ${{ secrets.acr_sumuthacr_username }}
+        password: ${{ secrets.acr_sumuthacr_password }}
+    
+    - name: Build and push image to ACR
+      id: build-image
+      run: |
+        docker build "$GITHUB_WORKSPACE/" -f  "Dockerfile" -t sumuthacr.azurecr.io/sumuthakscluster:${{ github.sha }}
+        docker push sumuthacr.azurecr.io/sumuthakscluster:${{ github.sha }}
+    
+    - uses: azure/k8s-set-context@v1
+      with:
+         kubeconfig: ${{ secrets.aks_sumuthakscluster_kubeConfig }}
+      id: login
+    
+    - name: Create namespace
+      run: |
+        namespacePresent=`kubectl get namespace | grep sumuthakscluster529a | wc -l`
+        if [ $namespacePresent -eq 0 ]
+        then
+            echo `kubectl create namespace sumuthakscluster529a`
+        fi
+
+    - uses: azure/k8s-create-secret@v1
+      with:
+        namespace: sumuthakscluster529a
+        container-registry-url: sumuthacr.azurecr.io
+        container-registry-username: ${{ secrets.acr_sumuthacr_username }}
+        container-registry-password: ${{ secrets.acr_sumuthacr_password }}
+        secret-name: sumuthakscludockerauth
+       
+    - uses: azure/k8s-deploy@v1
+      with:
+        namespace: sumuthakscluster529a
+        manifests: |
+          manifests/deployment-1.yml
+          manifests/service-1.yml
+        images: |
+          sumuthacr.azurecr.io/sumuthakscluster:${{ github.sha }}
+        imagepullsecrets: |
+          sumuthakscludockerauth
